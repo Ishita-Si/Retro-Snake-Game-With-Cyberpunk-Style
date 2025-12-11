@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cyberpunk Snake</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background-color: #050505;
+            color: #39ff14;
+            font-family: 'VT323', monospace;
+            overflow: hidden;
+            touch-action: none; /* Prevent scroll on mobile */
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(57, 255, 20, 0.2);
+            border: 2px solid #333;
+        }
+
+        canvas {
+            background: linear-gradient(rgba(0, 20, 0, 0.9), rgba(0, 10, 0, 0.95)),
+                        repeating-linear-gradient(0deg, transparent, transparent 19px, #112211 20px),
+                        repeating-linear-gradient(90deg, transparent, transparent 19px, #112211 20px);
+            background-size: 20px 20px;
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .score-board {
+            padding: 10px 20px;
+            font-size: 24px;
+            text-shadow: 0 0 10px #39ff14;
+            display: flex;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(5, 5, 5, 0.9);
+            padding: 40px;
+            border: 1px solid #39ff14;
+            box-shadow: 0 0 15px #39ff14;
+            pointer-events: auto;
+            min-width: 250px;
+        }
+
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 48px;
+            text-transform: uppercase;
+            text-shadow: 0 0 20px #39ff14;
+            letter-spacing: 4px;
+        }
+
+        button {
+            background: transparent;
+            color: #39ff14;
+            border: 2px solid #39ff14;
+            padding: 10px 30px;
+            font-family: 'VT323', monospace;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(57, 255, 20, 0.2);
+        }
+
+        button:hover {
+            background: #39ff14;
+            color: #000;
+            box-shadow: 0 0 20px #39ff14;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Scanline effect */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .controls-hint {
+            margin-top: 15px;
+            font-size: 16px;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scanlines"></div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+        
+        <div id="ui-layer">
+            <div class="score-board">
+                <span>SCORE: <span id="score">0</span></span>
+                <span>HIGH: <span id="high-score">0</span></span>
+            </div>
+        </div>
+
+        <div id="start-screen">
+            <h1>Neon Snake</h1>
+            <button onclick="startGame()">Start Game</button>
+            <div class="controls-hint">Use Arrow Keys, WASD, or Swipe</div>
+        </div>
+
+        <div id="game-over-screen" class="hidden">
+            <h1 style="color: #ff0055; text-shadow: 0 0 20px #ff0055;">CRASHED</h1>
+            <p style="font-size: 24px; margin-bottom: 30px;">Final Score: <span id="final-score">0</span></p>
+            <button onclick="startGame()">Reboot System</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const highScoreElement = document.getElementById('high-score');
+        const finalScoreElement = document.getElementById('final-score');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+
+        // Game Settings
+        const gridSize = 20;
+        let tileCount = canvas.width / gridSize; // 20
+        
+        let score = 0;
+        let highScore = localStorage.getItem('snakeHighScore') || 0;
+        highScoreElement.innerText = highScore;
+
+        // Snake & Food
+        let snake = [];
+        let food = { x: 15, y: 15 };
+        
+        // Velocity (Movement)
+        let dx = 0;
+        let dy = 0;
+        
+        // Game Loop
+        let gameInterval;
+        let gameSpeed = 100; // ms
+        let isGameRunning = false;
+
+        // Resize canvas for mobile responsiveness if needed (keeping fixed for retro feel, but scaling logic could go here)
+        function resizeCanvas() {
+            // Optional: Responsive logic logic could go here, but for retro grid accuracy we keep 400x400
+            // and let CSS handle the centering/fitting.
+        }
+
+        function startGame() {
+            // Reset state
+            snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }]; // Start with tail
+            score = 0;
+            scoreElement.innerText = score;
+            dx = 1; // Start moving right
+            dy = 0;
+            isGameRunning = true;
+            
+            // Randomize food
+            placeFood();
+
+            // UI
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+
+            // Start loop
+            clearInterval(gameInterval);
+            gameInterval = setInterval(gameLoop, gameSpeed);
+        }
+
+        function gameLoop() {
+            if (!isGameRunning) return;
+
+            update();
+            draw();
+        }
+
+        function update() {
+            // Calculate new head position
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+            // Wall Collision (Game Over)
+            if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) {
+                gameOver();
+                return;
+            }
+
+            // Self Collision
+            for (let i = 0; i < snake.length; i++) {
+                if (head.x === snake[i].x && head.y === snake[i].y) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            // Move Snake (Add new head)
+            snake.unshift(head);
+
+            // Eat Food
+            if (head.x === food.x && head.y === food.y) {
+                score += 10;
+                scoreElement.innerText = score;
+                
+                // Increase speed slightly every 50 points
+                if (score % 50 === 0 && gameSpeed > 50) {
+                    clearInterval(gameInterval);
+                    gameSpeed -= 5;
+                    gameInterval = setInterval(gameLoop, gameSpeed);
+                }
+
+                placeFood();
+                // Don't pop the tail, so snake grows
+            } else {
+                // Remove tail if didn't eat
+                snake.pop();
+            }
+        }
+
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Snake
+            snake.forEach((segment, index) => {
+                // Head is brighter
+                if (index === 0) {
+                    ctx.fillStyle = '#39ff14'; // Neon Green
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#39ff14';
+                } else {
+                    ctx.fillStyle = '#2cb810'; // Darker Green
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.fillRect(segment.x * gridSize, segment.y * gridSize, gridSize - 2, gridSize - 2);
+            });
+
+            // Reset shadow for other elements
+            ctx.shadowBlur = 0;
+
+            // Draw Food
+            ctx.fillStyle = '#ff0055'; // Neon Pink
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#ff0055';
+            ctx.beginPath();
+            // Draw circle for food
+            let centerX = (food.x * gridSize) + (gridSize / 2);
+            let centerY = (food.y * gridSize) + (gridSize / 2);
+            let radius = (gridSize / 2) - 2;
+            
+            ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Reset shadow
+            ctx.shadowBlur = 0;
+        }
+
+        function placeFood() {
+            // Simple random placement
+            food = {
+                x: Math.floor(Math.random() * tileCount),
+                y: Math.floor(Math.random() * tileCount)
+            };
+
+            // Ensure food doesn't spawn on snake body
+            for (let part of snake) {
+                if (part.x === food.x && part.y === food.y) {
+                    placeFood(); // Try again
+                    break;
+                }
+            }
+        }
+
+        function gameOver() {
+            isGameRunning = false;
+            clearInterval(gameInterval);
+            
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('snakeHighScore', highScore);
+                highScoreElement.innerText = highScore;
+            }
+
+            finalScoreElement.innerText = score;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        // Input Handling
+        document.addEventListener('keydown', keyDownEvent);
+
+        function keyDownEvent(event) {
+            // Prevent scrolling with arrow keys
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(event.code) > -1) {
+                event.preventDefault();
+            }
+
+            switch (event.keyCode) {
+                case 37: // Left
+                case 65: // A
+                    if (dx !== 1) { dx = -1; dy = 0; }
+                    break;
+                case 38: // Up
+                case 87: // W
+                    if (dy !== 1) { dx = 0; dy = -1; }
+                    break;
+                case 39: // Right
+                case 68: // D
+                    if (dx !== -1) { dx = 1; dy = 0; }
+                    break;
+                case 40: // Down
+                case 83: // S
+                    if (dy !== -1) { dx = 0; dy = 1; }
+                    break;
+            }
+        }
+
+        // Touch Controls (Swipe)
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        canvas.addEventListener('touchstart', function(evt) {
+            touchStartX = evt.changedTouches[0].screenX;
+            touchStartY = evt.changedTouches[0].screenY;
+        }, false);
+
+        canvas.addEventListener('touchmove', function(evt) {
+            evt.preventDefault(); // Prevent scrolling while playing
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', function(evt) {
+            let touchEndX = evt.changedTouches[0].screenX;
+            let touchEndY = evt.changedTouches[0].screenY;
+            handleSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+        }, false);
+
+        function handleSwipe(startX, startY, endX, endY) {
+            let diffX = endX - startX;
+            let diffY = endY - startY;
+
+            // Determine if horizontal or vertical swipe was greater
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+                // Horizontal
+                if (diffX > 0 && dx !== -1) { dx = 1; dy = 0; } // Right
+                else if (diffX < 0 && dx !== 1) { dx = -1; dy = 0; } // Left
+            } else {
+                // Vertical
+                if (diffY > 0 && dy !== -1) { dx = 0; dy = 1; } // Down
+                else if (diffY < 0 && dy !== 1) { dx = 0; dy = -1; } // Up
+            }
+        }
+
+        // Initial Draw
+        draw();
+
+    </script>
+</body>
+</html>
